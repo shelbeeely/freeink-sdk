@@ -30,6 +30,10 @@ API: switching to FreeInk is a matter of repointing the library path.
   (see [docs/freeink-book.md](docs/freeink-book.md)).
 - **Icon and asset tooling** for crisp 1-bpp Lucide-derived icons and generated
   C/C++ assets.
+- **FreeInkMaps + Gps**, an optional offline map/navigation extension: `Gps`
+  reads a UART GPS/GNSS receiver (NMEA 0183), and `FreeInkMaps` draws
+  compiled-in offline map tiles, a route, and turn-by-turn navigation chrome
+  through FreeInkUI (see [docs/freeink-maps.md](docs/freeink-maps.md)).
 
 ## Credit & lineage
 
@@ -820,6 +824,7 @@ libs/
   hardware/FrontlightManager/  PWM frontlight (LEDC or PMIC-PWM)
   hardware/LedManager/      RGB LEDs (M5 PaperColor addressable, Paper Mono discrete)
   hardware/AudioManager/    I2S codec WAV playback (Murphy, M5 PaperColor)
+  hardware/Gps/             UART GPS/GNSS receiver, NMEA 0183 (opt-in, FREEINK_CAP_GPS)
   network/SecureNet/        wolfSSL TLS 1.3 client + HTTP shim (opt-in)
 ```
 

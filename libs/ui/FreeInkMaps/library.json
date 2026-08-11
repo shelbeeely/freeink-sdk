@@ -1,0 +1,11 @@
+{
+  "name": "FreeInkMaps",
+  "version": "0.1.0",
+  "description": "Offline raster map tiles (Web Mercator XYZ) and turn-by-turn navigation chrome for FreeInk applications, drawn through a FreeInkUI DrawTarget.",
+  "keywords": "eink, epaper, maps, gps, navigation, offline",
+  "authors": [{"name": "FreeInk SDK Contributors"}],
+  "dependencies": {"FreeInkUI": "*"},
+  "platforms": "*",
+  "frameworks": "*",
+  "export": {"exclude": ["test", "tools"]}
+}

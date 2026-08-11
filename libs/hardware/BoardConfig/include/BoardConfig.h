@@ -270,6 +270,13 @@
 #define FREEINK_CAP_NET_TLS13 0
 #endif
 #endif
+// UART-attached GPS/GNSS receiver (NMEA 0183). No current FreeInk board ships
+// one on-glass, so this is opt-in like FREEINK_CAP_NET_TLS13: off unless a
+// consumer wires a module to a spare UART, sets BoardProfile::gps, and passes
+// -DFREEINK_CAP_GPS=1.
+#ifndef FREEINK_CAP_GPS
+#define FREEINK_CAP_GPS 0
+#endif
 
 // Place the facade framebuffer(s) in PSRAM (heap, MALLOC_CAP_SPIRAM) instead of
 // static DRAM .bss. Default on for M5Paper v1.1: the classic ESP32 has tight
@@ -574,6 +581,22 @@ struct SensorsConfig {
   ImuType imuType = ImuType::None;
 };
 
+// GPS/GNSS receiver wiring, for a UART-attached NMEA 0183 module (e.g. u-blox
+// NEO-6M/NEO-M8N, Quectel L80/L86). No current FreeInk board wires one
+// on-glass; this describes a module a consumer attaches to a spare UART.
+// module == GpsModule::None disables it, so every existing profile is
+// unaffected. See libs/hardware/Gps.
+enum class GpsModule : uint8_t { None, Nmea };
+struct GpsConfig {
+  GpsModule module = GpsModule::None;
+  uint8_t uartPort = 1;            // ESP32 UART peripheral index; avoid 0 (usually USB/log console)
+  int8_t rxPin = PIN_UNASSIGNED;   // ESP RX, wired to the module's TX
+  int8_t txPin = PIN_UNASSIGNED;   // ESP TX, wired to the module's RX; PIN_UNASSIGNED for read-only wiring
+  int8_t enable = PIN_UNASSIGNED;  // module power/enable pin; PIN_UNASSIGNED if always-on
+  bool enableActiveHigh = true;
+  uint32_t baud = 9600;            // NMEA module power-on default; many modules support higher via autobaud
+};
+
 // How the panel is mounted relative to the driver's native scan. Any board injects
 // its own mirroring here; a 180° rotation is mirrorX && mirrorY. (90°/270° need a
 // software transpose — they swap width/height and aren't expressible by panel RAM
@@ -647,6 +670,9 @@ struct BoardProfile {
   // Bezel-covered edge insets. Defaulted so existing profiles need no change;
   // a measured board overrides it.
   ViewableInsets viewableInsets = {};
+  // GPS/GNSS receiver (see GpsConfig). Defaulted so existing profiles need no
+  // change; a board or consumer wiring one in sets it.
+  GpsConfig gps = {};
 };
 
 constexpr TouchConfig NO_TOUCH = {TouchController::None,
@@ -1489,5 +1515,6 @@ inline bool hasRtc() { return ACTIVE.sensors.rtcAddr != 0; }
 inline bool hasTempHumidity() { return ACTIVE.sensors.tempHumidityAddr != 0; }
 inline bool hasImu() { return ACTIVE.sensors.imuAddr != 0; }
 inline bool hasLeds() { return ACTIVE.leds.data != PIN_UNASSIGNED && ACTIVE.leds.count > 0; }
+inline bool hasGps() { return ACTIVE.gps.module != GpsModule::None; }
 
 }  // namespace BoardConfig
