@@ -43,6 +43,7 @@
 #include "components/media/cover-grid.h"
 #include "components/media/book-card.h"
 #include "components/media/metric-card.h"
+#include "components/media/music-browser.h"
 #include "components/keyboard/key-grid.h"
 #include "components/keyboard/keyboard.h"
 #include "components/keyboard/qwerty-keyboard.h"

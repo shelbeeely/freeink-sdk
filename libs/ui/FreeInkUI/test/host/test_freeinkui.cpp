@@ -2631,6 +2631,97 @@ void testTextArea() {
   CHECK(sawCaret);       // caret on the now-visible line 1
 }
 
+// In-memory directory tree standing in for a real SD card: /Music has one
+// folder (Rock) and one track; /Music/Rock has one track and a nested
+// folder (Live) with a track of its own, deep enough to exercise back().
+uint16_t fakeMusicLister(const char* path, MusicEntry* out, uint16_t maxEntries, void*) {
+  auto setEntry = [](MusicEntry& e, const char* name, MusicEntryKind kind, uint32_t size) {
+    e = MusicEntry{};
+    strncpy(e.name, name, sizeof(e.name) - 1);
+    e.kind = kind;
+    e.sizeBytes = size;
+  };
+  if (strcmp(path, "/Music") == 0) {
+    if (maxEntries < 2) return 0;
+    setEntry(out[0], "Rock", MusicEntryKind::Folder, 0);
+    setEntry(out[1], "Song A.mp3", MusicEntryKind::Track, 3500000);
+    return 2;
+  }
+  if (strcmp(path, "/Music/Rock") == 0) {
+    if (maxEntries < 2) return 0;
+    setEntry(out[0], "Live", MusicEntryKind::Folder, 0);
+    setEntry(out[1], "Anthem.wav", MusicEntryKind::Track, 512);
+    return 2;
+  }
+  if (strcmp(path, "/Music/Rock/Live") == 0) {
+    if (maxEntries < 1) return 0;
+    setEntry(out[0], "Encore.wav", MusicEntryKind::Track, 2048);
+    return 1;
+  }
+  return 0;
+}
+
+void testMusicBrowser() {
+  MusicBrowser<8> browser;
+  browser.begin(fakeMusicLister, nullptr, "/Music", "Music");
+
+  // Root listing, breadcrumb label is the root label at depth 0.
+  CHECK_EQ(browser.count(), 2u);
+  CHECK(browser.atRoot());
+  CHECK_EQ(browser.depth(), 0u);
+  CHECK(strcmp(browser.breadcrumbLabel(), "Music") == 0);
+  CHECK(strcmp(browser.currentPath(), "/Music") == 0);
+  CHECK(browser.entry(0)->kind == MusicEntryKind::Folder);
+  CHECK(browser.entry(1)->kind == MusicEntryKind::Track);
+
+  // Selecting a track does not move the browser.
+  CHECK(!browser.enter(1));
+  CHECK(browser.atRoot());
+
+  // Drilling into a folder appends to the path and re-lists.
+  CHECK(browser.enter(0));
+  CHECK_EQ(browser.depth(), 1u);
+  CHECK(!browser.atRoot());
+  CHECK(strcmp(browser.currentPath(), "/Music/Rock") == 0);
+  CHECK(strcmp(browser.breadcrumbLabel(), "Rock") == 0);
+  CHECK_EQ(browser.count(), 2u);
+
+  // Nested drill-down, then unwind one level at a time.
+  CHECK(browser.enter(0));  // Live
+  CHECK_EQ(browser.depth(), 2u);
+  CHECK(strcmp(browser.currentPath(), "/Music/Rock/Live") == 0);
+  CHECK_EQ(browser.count(), 1u);
+  CHECK(strcmp(browser.entry(0)->name, "Encore.wav") == 0);
+
+  CHECK(browser.back());
+  CHECK_EQ(browser.depth(), 1u);
+  CHECK(strcmp(browser.currentPath(), "/Music/Rock") == 0);
+  CHECK_EQ(browser.count(), 2u);
+
+  CHECK(browser.back());
+  CHECK(browser.atRoot());
+  CHECK(strcmp(browser.currentPath(), "/Music") == 0);
+
+  // back() at the root is a no-op.
+  CHECK(!browser.back());
+  CHECK(browser.atRoot());
+
+  // musicBrowserListItems: folders get a ">" value, tracks get a formatted size.
+  ListItem items[2];
+  char sizeScratch[2][12];
+  musicBrowserListItems(browser.entries(), browser.count(), items, sizeScratch);
+  CHECK(strcmp(items[0].label, "Rock") == 0);
+  CHECK(strcmp(items[0].value, ">") == 0);
+  CHECK(strcmp(items[1].label, "Song A.mp3") == 0);
+  CHECK(strcmp(items[1].value, "3.3 MB") == 0);
+
+  char small[12];
+  formatMusicEntrySize(512, small, sizeof(small));
+  CHECK(strcmp(small, "512 B") == 0);
+  formatMusicEntrySize(48u * 1024u, small, sizeof(small));
+  CHECK(strcmp(small, "48 KB") == 0);
+}
+
 }  // namespace
 
 int main() {
@@ -2699,6 +2790,7 @@ int main() {
   testFreeInkAppDispatchesScreenActions();
   testFreeInkAppHandlerOverflowFlag();
   testTextArea();
+  testMusicBrowser();
 
   std::printf("%d checks, %d failed\n", checksRun, checksFailed);
   return checksFailed == 0 ? 0 : 1;

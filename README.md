@@ -22,7 +22,8 @@ API: switching to FreeInk is a matter of repointing the library path.
 - **Device managers** that keep firmware code stable across different boards:
   input, battery, SD, frontlight, LEDs, audio, microphone, RTC, sensors, and IMU.
 - **FreeInkUI**, an optional immediate-mode UI layer for e-paper reader screens,
-  dialogs, settings, keyboards, library views, and future GUI-builder previews.
+  dialogs, settings, keyboards, library views, an iPod-style SD card music
+  browser, and future GUI-builder previews.
 - **FreeInkBook**, a complete EPUB reading engine — streaming parse, CSS,
   UAX #14 layout with hyphenation/justification/ligatures, page caching with
   exact position anchors, TTF fonts with per-codepoint fallback, image
@@ -465,7 +466,7 @@ LVGL clone.
 | Message box/dialog | `popup`, `toast`, `messagePanel`, `optionDialog` |
 | Chart/meter | `metricCard`, `progressBar`; generic chart/meter widgets are not first-class yet |
 | Calendar/spinner/arc/animation extras | Not first-class; add as app components when they make sense for a specific e-paper product |
-| E-reader/library surfaces | `tapZones`, `readerChrome`, `bookCard`, `coverGrid`, `coverCarousel`, `batteryIndicator` |
+| E-reader/library surfaces | `tapZones`, `readerChrome`, `bookCard`, `coverGrid`, `coverCarousel`, `batteryIndicator`, `MusicBrowser` (iPod-style SD card folder/track browsing) |
 
 ### FreeInkUI component gallery
 

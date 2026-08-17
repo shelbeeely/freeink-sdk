@@ -439,6 +439,69 @@ components and apps: `clampI16`/`clampU8`/`clampRadius`, `makeRect`/`makeSize`/
 `makeInsets`, and ready-made `StyleSet` builders (`outlinedButtonStyles`,
 `selectedOutlineListRowStyles`, `selectedPlainListRowStyles`).
 
+### Music Browser (SD Card Browsing)
+
+`components/media/music-browser.h` is an iPod-style drill-down file browser —
+folders and tracks, breadcrumb navigation, no playback. It's a screen that
+needs *live* directory queries, so unlike the generated screens above it can't
+be baked from a static JSON schema; it's a small stateful helper (`MusicBrowser`)
+you drive from a hand-written screen, the same way the Manual Frame API example
+above drives page rendering.
+
+Like `AudioManager::WavSource`, the browser is storage-agnostic: it walks an
+injected `MusicBrowserLister` function pointer instead of touching a
+filesystem directly, so the navigation state machine (breadcrumb stack,
+selection, virtualized list) is freestanding and host-testable without a real
+SD card:
+
+```cpp
+uint16_t myLister(const char* path, freeink::ui::MusicEntry* out,
+                  uint16_t maxEntries, void* userData);
+```
+
+`FreeInkUISDMusicBrowser.h` is the opt-in SD-backed implementation — like
+`FreeInkUIIcon.h`, only compilable in firmwares that also add SDCardManager to
+`lib_deps`. It lists folders and files with an audio extension
+(`sdMusicBrowserLister`, extension allowlist in `SDMusicBrowserConfig`,
+defaulting to mp3/wav/flac/m4a/ogg/aac/wma), skips dotfiles, and sorts folders
+before tracks.
+
+```cpp
+#include <FreeInkUISDMusicBrowser.h>
+
+freeink::ui::MusicBrowser<64> browser;  // up to 64 entries per directory
+browser.begin(freeink::ui::sdMusicBrowserLister, nullptr, "/Music", "Music");
+
+void musicScreen(App::ScreenType& screen, void* user) {
+  auto& browser = *static_cast<decltype(browser)*>(user);
+  screen.navHeader(browser.breadcrumbLabel(), ActionMusicBack, backIcon);
+
+  freeink::ui::ListItem items[64];
+  char sizeScratch[64][12];
+  freeink::ui::musicBrowserListItems(browser.entries(), browser.count(), items,
+                                     sizeScratch);
+  browser.nav().syncToProps(screen.body(), rowHeight, rowGap, browser.count(),
+                            listProps);  // keeps selection in view
+  screen.list(items, browser.count(), browser.nav().selected, ActionMusicOpen,
+             browser.nav().top);
+}
+
+app.on(ActionMusicOpen, [](const freeink::ui::ActionEvent& e, void* user) {
+  auto& browser = *static_cast<decltype(browser)*>(user);
+  browser.nav().selected = e.value;
+  browser.enter(static_cast<uint16_t>(e.value));  // no-op on a track
+}, &browser);
+
+app.on(ActionMusicBack, [](const freeink::ui::ActionEvent&, void* user) {
+  static_cast<decltype(browser)*>(user)->back();
+}, &browser);
+```
+
+Selecting a track is left to the app — `enter()` only drills into folders and
+returns `false` for a track, so the `ActionMusicOpen` handler above is the
+natural place to hook a "now selected" bookmark, an actual player, or just a
+toast. `MusicBrowser` never touches `AudioManager`.
+
 ## Rendering
 
 FreeInkUI draws through a `DrawTarget` — an interface of primitives (`fill`,
