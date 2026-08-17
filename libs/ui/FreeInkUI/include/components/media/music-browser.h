@@ -17,6 +17,7 @@
 #include "../../FreeInkUICore.h"
 #include "../lists/list.h"
 
+#include <ctype.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -71,6 +72,50 @@ inline void musicBrowserListItems(const MusicEntry *entries, uint16_t count,
     }
     out[i] = item;
   }
+}
+
+// Case-insensitive natural-order compare for two null-terminated names:
+// numeric runs compare by value (not lexically), so "2 - Interlude.mp3"
+// sorts before "10 - Outro.mp3" instead of after it. Ported from
+// CrossPoint's FsHelpers::naturalLess — the reference firmware FreeInkUI's
+// browsing components are validated against.
+inline int compareMusicEntryNames(const char *a, const char *b) {
+  while (*a && *b) {
+    const bool digitsA = *a >= '0' && *a <= '9';
+    const bool digitsB = *b >= '0' && *b <= '9';
+    if (digitsA && digitsB) {
+      while (*a == '0') ++a;
+      while (*b == '0') ++b;
+      size_t lenA = 0, lenB = 0;
+      while (a[lenA] >= '0' && a[lenA] <= '9') ++lenA;
+      while (b[lenB] >= '0' && b[lenB] <= '9') ++lenB;
+      if (lenA != lenB) return lenA < lenB ? -1 : 1;
+      for (size_t i = 0; i < lenA; ++i) {
+        if (a[i] != b[i]) return a[i] < b[i] ? -1 : 1;
+      }
+      a += lenA;
+      b += lenB;
+    } else {
+      const char ca = static_cast<char>(tolower(static_cast<unsigned char>(*a)));
+      const char cb = static_cast<char>(tolower(static_cast<unsigned char>(*b)));
+      if (ca != cb) return ca < cb ? -1 : 1;
+      ++a;
+      ++b;
+    }
+  }
+  if (*a == *b) return 0;
+  return *a == '\0' ? -1 : 1;
+}
+
+// Sort order most browsers want: folders before tracks, natural order
+// within each group. Signature matches qsort's comparator so a lister can
+// pass it straight through.
+inline int compareMusicEntries(const void *a, const void *b) {
+  const MusicEntry *ea = static_cast<const MusicEntry *>(a);
+  const MusicEntry *eb = static_cast<const MusicEntry *>(b);
+  if (ea->kind != eb->kind)
+    return ea->kind == MusicEntryKind::Folder ? -1 : 1;
+  return compareMusicEntryNames(ea->name, eb->name);
 }
 
 // Stateful drill-down navigator: breadcrumb stack + the current directory's

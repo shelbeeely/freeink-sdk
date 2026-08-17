@@ -7,6 +7,7 @@
 #include <FreeInkUIDisplayTarget.h>
 
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 namespace {
@@ -2722,6 +2723,39 @@ void testMusicBrowser() {
   CHECK(strcmp(small, "48 KB") == 0);
 }
 
+void testMusicBrowserNaturalSort() {
+  // Numeric runs compare by value, not lexically: "2" sorts before "10".
+  CHECK(compareMusicEntryNames("2 - Interlude.mp3", "10 - Outro.mp3") < 0);
+  CHECK(compareMusicEntryNames("10 - Outro.mp3", "2 - Interlude.mp3") > 0);
+  CHECK(compareMusicEntryNames("track2.mp3", "track2.mp3") == 0);
+  // Case-insensitive.
+  CHECK(compareMusicEntryNames("abba.mp3", "ABBA.mp3") == 0);
+  // Leading zeros don't change numeric value or ordering.
+  CHECK(compareMusicEntryNames("02.mp3", "2.mp3") == 0);
+  CHECK(compareMusicEntryNames("09.mp3", "10.mp3") < 0);
+  // Plain lexical fallback outside numeric runs.
+  CHECK(compareMusicEntryNames("Alpha.mp3", "Beta.mp3") < 0);
+  CHECK(compareMusicEntryNames("Beta.mp3", "Alpha.mp3") > 0);
+  // Shorter prefix sorts first.
+  CHECK(compareMusicEntryNames("track", "track2.mp3") < 0);
+
+  MusicEntry entries[4];
+  strncpy(entries[0].name, "10 - Outro.mp3", sizeof(entries[0].name) - 1);
+  entries[0].kind = MusicEntryKind::Track;
+  strncpy(entries[1].name, "Live", sizeof(entries[1].name) - 1);
+  entries[1].kind = MusicEntryKind::Folder;
+  strncpy(entries[2].name, "2 - Interlude.mp3", sizeof(entries[2].name) - 1);
+  entries[2].kind = MusicEntryKind::Track;
+  strncpy(entries[3].name, "Bonus", sizeof(entries[3].name) - 1);
+  entries[3].kind = MusicEntryKind::Folder;
+  qsort(entries, 4, sizeof(MusicEntry), compareMusicEntries);
+  // Folders before tracks, natural order within each group.
+  CHECK(strcmp(entries[0].name, "Bonus") == 0);
+  CHECK(strcmp(entries[1].name, "Live") == 0);
+  CHECK(strcmp(entries[2].name, "2 - Interlude.mp3") == 0);
+  CHECK(strcmp(entries[3].name, "10 - Outro.mp3") == 0);
+}
+
 }  // namespace
 
 int main() {
@@ -2791,6 +2825,7 @@ int main() {
   testFreeInkAppHandlerOverflowFlag();
   testTextArea();
   testMusicBrowser();
+  testMusicBrowserNaturalSort();
 
   std::printf("%d checks, %d failed\n", checksRun, checksFailed);
   return checksFailed == 0 ? 0 : 1;

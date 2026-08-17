@@ -46,14 +46,6 @@ inline bool hasAudioExtension(const char *name,
   return false;
 }
 
-inline int compareMusicEntries(const void *a, const void *b) {
-  const MusicEntry *ea = static_cast<const MusicEntry *>(a);
-  const MusicEntry *eb = static_cast<const MusicEntry *>(b);
-  if (ea->kind != eb->kind)
-    return ea->kind == MusicEntryKind::Folder ? -1 : 1;
-  return strcasecmp(ea->name, eb->name);
-}
-
 }  // namespace detail
 
 // MusicBrowserLister backed by SDCardManager. Pass a `const
@@ -77,7 +69,9 @@ inline uint16_t sdMusicBrowserLister(const char *path, MusicEntry *out,
        f = dir.openNextFile()) {
     char name[64];
     f.getName(name, sizeof(name));
-    if (name[0] == '.') {  // hidden/system entries (._*, .Trashes, ...)
+    // Hidden entries (._*, .Trashes, ...) and the Windows-created system
+    // folder that doesn't start with a dot.
+    if (name[0] == '.' || strcmp(name, "System Volume Information") == 0) {
       f.close();
       continue;
     }
@@ -97,7 +91,7 @@ inline uint16_t sdMusicBrowserLister(const char *path, MusicEntry *out,
   }
   dir.close();
 
-  qsort(out, count, sizeof(MusicEntry), detail::compareMusicEntries);
+  qsort(out, count, sizeof(MusicEntry), compareMusicEntries);
   return count;
 }
 

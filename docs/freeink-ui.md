@@ -463,8 +463,13 @@ uint16_t myLister(const char* path, freeink::ui::MusicEntry* out,
 `FreeInkUIIcon.h`, only compilable in firmwares that also add SDCardManager to
 `lib_deps`. It lists folders and files with an audio extension
 (`sdMusicBrowserLister`, extension allowlist in `SDMusicBrowserConfig`,
-defaulting to mp3/wav/flac/m4a/ogg/aac/wma), skips dotfiles, and sorts folders
-before tracks.
+defaulting to mp3/wav/flac/m4a/ogg/aac/wma), skips dotfiles and the
+Windows-created `System Volume Information` folder, and sorts folders before
+tracks. Within a group, `compareMusicEntryNames` (in music-browser.h, so any
+lister can reuse it) does case-insensitive natural-order sort — numeric runs
+compare by value, so "2 - Interlude.mp3" sorts before "10 - Outro.mp3" —
+ported from CrossPoint's `FsHelpers::naturalLess`, the reference reader
+firmware this component is validated against.
 
 ```cpp
 #include <FreeInkUISDMusicBrowser.h>
