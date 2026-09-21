@@ -17,6 +17,16 @@
 // The WAV source is a pair of callbacks instead of a FILE/Stream so the SDK
 // stays storage-agnostic: firmware can serve bytes from LittleFS, SD, or a
 // PROGMEM array with the same API.
+//
+// MP3 playback (playMp3()) is opt-in via -DFREEINK_MP3_HELIX=1 (see
+// FREEINK_CAP_MP3 in BoardConfig.h), the same pattern as SecureNet's wolfSSL
+// flag: it requires a libhelix-mp3 port (the classic Helix fixed-point
+// decoder's mp3dec.h C API, as bundled by e.g. ESP8266Audio or its forks) in
+// the consumer's own lib_deps. With the flag off, playMp3() compiles to a
+// no-op that returns false — builds that only ever play WAV pull in no
+// decoder. It decodes into the same I2S output path as play(); sample rate
+// and channel count come from the bitstream's first frame rather than a
+// header, since MP3 has none.
 
 #include <Arduino.h>
 
@@ -49,6 +59,12 @@ class AudioManager {
   // Convenience: play from a memory buffer (e.g. an embedded default sound).
   bool playBuffer(const uint8_t* data, size_t len, bool loop);
 
+  // Starts MP3 playback. See the file header for the FREEINK_MP3_HELIX
+  // opt-in. Stops any current playback first. loop=true replays until
+  // stop(). Returns false immediately (no task started) if MP3 support isn't
+  // compiled in.
+  bool playMp3(const WavSource& source, bool loop);
+
   void stop();
   bool isPlaying() const { return playing_; }
 
@@ -64,8 +80,18 @@ class AudioManager {
     size_t dataLength = 0;
   };
 
+  enum class Format : uint8_t { Pcm, Mp3 };
+
   static void taskEntry(void* self);
   void taskLoop();
+  void pcmTaskLoop();
+  void mp3TaskLoop();
+  // Primes the I2S line with silence then raises the amp (avoids the audible
+  // pop an amp gives when enabled against an idle/just-started line), and the
+  // matching end-of-playback flush that drains stale DMA contents before
+  // disabling the channel. Shared by pcmTaskLoop() and mp3TaskLoop().
+  void primeSilenceAndAmpUp();
+  void flushAndDisable();
   bool parseWavHeader(const WavSource& source, WavInfo& info);
   bool ensureI2s(uint32_t sampleRate);
   void teardownI2s();
@@ -83,6 +109,7 @@ class AudioManager {
   WavSource source_;
   WavInfo wav_;
   bool loop_ = false;
+  Format format_ = Format::Pcm;
 
   void* txChan_ = nullptr;  // i2s_chan_handle_t (kept void* to slim the header)
   volatile bool chanEnabled_ = false;

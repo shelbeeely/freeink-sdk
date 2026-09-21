@@ -323,6 +323,17 @@
 #define FREEINK_CAP_NET_TLS13 0
 #endif
 #endif
+// MP3 decode for AudioManager::playMp3(). Opt-in like FREEINK_CAP_NET_TLS13
+// above: unrelated to any device, so it isn't derived from FREEINK_DEVICE_*.
+// Requires a libhelix-mp3 port in the consumer's own lib_deps; with the flag
+// off, playMp3() is a no-op and no decoder is linked.
+#ifndef FREEINK_CAP_MP3
+#if defined(FREEINK_MP3_HELIX)
+#define FREEINK_CAP_MP3 1
+#else
+#define FREEINK_CAP_MP3 0
+#endif
+#endif
 
 // Place the facade framebuffer(s) in PSRAM (heap, MALLOC_CAP_SPIRAM) instead of
 // static DRAM .bss. Default on for M5Paper v1.1: the classic ESP32 has tight

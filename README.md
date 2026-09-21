@@ -24,6 +24,10 @@ Start with [PlatformIO integration](#using-freeink-from-platformio), browse the
   frontlight, audio, microphone, RTC, sensors, buzzer, LEDs, and TLS networking.
 - **Device managers** that keep firmware code stable across different boards:
   input, battery, SD, frontlight, LEDs, audio, microphone, RTC, sensors, and IMU.
+  Audio covers WAV playback with a chapter/playlist queue (`AudioPlaylist`) and
+  opt-in MP3 decode (`AudioManager::playMp3()`), mic capture to a WAV voice note
+  (`AudioRecorder`), and a provider-agnostic cloud text-to-speech bridge
+  (`TtsClient`) for narrating page text over the existing TLS networking.
 - **FreeInkUI**, an optional immediate-mode UI layer for e-paper reader screens,
   dialogs, settings, keyboards, library views, and future GUI-builder previews.
 - **FreeInkBook**, a complete EPUB reading engine — streaming parse, CSS,
@@ -359,6 +363,7 @@ tight. Each defaults on when an included device needs it; force with `=0`/`=1`:
 | `FREEINK_CAP_BUZZER` | LEDC PWM tone buzzer (Buzzer lib: tone/beep on `audio.buzzer`) | on for Sticky, Murphy, and Paper Mono |
 | `FREEINK_CAP_LED` | RGB LEDs (LedManager: addressable chains, or the Paper Mono's discrete PMIC/expander-driven LED) | on for M5 and Paper Mono |
 | `FREEINK_CAP_NET_TLS13` | wolfSSL TLS 1.3 (≡ `FREEINK_NET_WOLFSSL`) | off |
+| `FREEINK_CAP_MP3` | MP3 decode for `AudioManager::playMp3()` (≡ `FREEINK_MP3_HELIX`) | off |
 
 **Other flags:**
 
@@ -861,8 +866,10 @@ libs/
   hardware/MemoryManager/   on-demand cache-sink reclaim + heap reporting
   hardware/FrontlightManager/  PWM frontlight (LEDC or PMIC-PWM)
   hardware/LedManager/      RGB LEDs (M5 PaperColor addressable, Paper Mono discrete)
-  hardware/AudioManager/    I2S codec WAV playback (Murphy, M5 PaperColor)
+  hardware/AudioManager/    I2S codec WAV/MP3 playback + AudioPlaylist (Murphy, M5 PaperColor)
+  hardware/Microphone/      PDM mic capture + AudioRecorder (WAV voice notes)
   network/SecureNet/        wolfSSL TLS 1.3 client + HTTP shim (opt-in)
+  network/TtsClient/        provider-agnostic cloud TTS bridge over SecureNet (opt-in)
 ```
 
 ## Upstream contributors

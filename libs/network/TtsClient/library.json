@@ -1,0 +1,11 @@
+{
+  "name": "TtsClient",
+  "version": "1.0.0",
+  "description": "FreeInk cloud text-to-speech bridge: sends page text to a caller-supplied, provider-agnostic HTTP request builder over SecureHttpClient and delivers the synthesized audio bytes to a sink for AudioManager to play. Ships no vendor integration — the request shape (endpoint, auth, body) is the caller's chosen TTS provider's, not this SDK's concern. Header-only.",
+  "keywords": "tts, text-to-speech, audio, https, network, accessibility",
+  "authors": [{"name": "FreeInk SDK Contributors"}],
+  "dependencies": {},
+  "platforms": "espressif32",
+  "frameworks": ["arduino"],
+  "notes": "Requires SecureNet (SecureHttpClient.h) in the consuming project's lib_deps, and -DFREEINK_NET_WOLFSSL=1 plus a wolfSSL lib_dep for https endpoints — see SecureNet's own library.json notes."
+}

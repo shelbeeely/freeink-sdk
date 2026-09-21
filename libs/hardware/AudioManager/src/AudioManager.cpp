@@ -11,6 +11,14 @@
 
 #include <memory>
 
+// Opt-in MP3 decode (see AudioManager.h and BoardConfig.h's FREEINK_CAP_MP3).
+// mp3dec.h is the classic Helix fixed-point decoder's public C API, as
+// bundled by libhelix-mp3 ports (e.g. ESP8266Audio and its forks) — add one
+// to lib_deps to build with -DFREEINK_MP3_HELIX=1.
+#if FREEINK_CAP_MP3
+#include <mp3dec.h>
+#endif
+
 namespace freeink {
 
 namespace {
@@ -305,6 +313,7 @@ bool AudioManager::play(const WavSource& source, bool loop) {
   source_ = source;
   wav_ = info;
   loop_ = loop;
+  format_ = Format::Pcm;
   stopRequested_ = false;
   playing_ = true;
 
@@ -353,19 +362,49 @@ void AudioManager::stop() {
 void AudioManager::taskEntry(void* self) { static_cast<AudioManager*>(self)->taskLoop(); }
 
 void AudioManager::taskLoop() {
+#if FREEINK_CAP_MP3
+  if (format_ == Format::Mp3) {
+    mp3TaskLoop();
+    return;
+  }
+#endif
+  pcmTaskLoop();
+}
+
+// Prime the line with silence, then raise the amp: the AW8737A (and similar
+// class-D amps) pop loudly when enabled against an idle or just-started I2S
+// line. Shared by pcmTaskLoop() and mp3TaskLoop() so both formats get the
+// same pop-free start.
+void AudioManager::primeSilenceAndAmpUp() {
+  i2s_chan_handle_t tx = (i2s_chan_handle_t)txChan_;
+  int16_t silence[READ_CHUNK] = {};
+  for (int i = 0; i < 2; ++i) {
+    size_t written = 0;
+    if (i2s_channel_write(tx, silence, sizeof(silence), &written, pdMS_TO_TICKS(200)) != ESP_OK) break;
+  }
+  setAmp(true);
+}
+
+// Flush silence through every DMA descriptor, then stop the channel entirely
+// — a merely-idle channel replays stale DMA contents (heard as a stutter).
+void AudioManager::flushAndDisable() {
+  i2s_chan_handle_t tx = (i2s_chan_handle_t)txChan_;
+  int16_t silence[READ_CHUNK] = {};
+  for (int i = 0; i < 6; ++i) {
+    size_t written = 0;
+    if (i2s_channel_write(tx, silence, sizeof(silence), &written, pdMS_TO_TICKS(200)) != ESP_OK) break;
+  }
+  i2s_channel_disable(tx);
+  chanEnabled_ = false;
+}
+
+void AudioManager::pcmTaskLoop() {
   i2s_chan_handle_t tx = (i2s_chan_handle_t)txChan_;
   uint8_t inBuf[READ_CHUNK];
   // Mono is duplicated into both slots, so the out buffer is 2x.
   int16_t outBuf[READ_CHUNK];
 
-  // Prime the line with silence, then raise the amp: the AW8737A pops loudly
-  // when enabled against an idle or just-started I2S line.
-  memset(outBuf, 0, sizeof(outBuf));
-  for (int i = 0; i < 2; ++i) {
-    size_t written = 0;
-    if (i2s_channel_write(tx, outBuf, sizeof(outBuf), &written, pdMS_TO_TICKS(200)) != ESP_OK) break;
-  }
-  setAmp(true);
+  primeSilenceAndAmpUp();
 
   size_t consumed = 0;
   while (!stopRequested_) {
@@ -412,19 +451,176 @@ void AudioManager::taskLoop() {
     if (i2s_channel_write(tx, outBuf, outBytes, &written, pdMS_TO_TICKS(1000)) != ESP_OK) break;
   }
 
-  // Flush silence through every DMA descriptor, then stop the channel
-  // entirely — a merely-idle channel replays stale DMA contents (stutter).
-  memset(outBuf, 0, sizeof(outBuf));
-  for (int i = 0; i < 6; ++i) {
-    size_t written = 0;
-    if (i2s_channel_write(tx, outBuf, sizeof(outBuf), &written, pdMS_TO_TICKS(200)) != ESP_OK) break;
-  }
-  i2s_channel_disable(tx);
-  chanEnabled_ = false;
+  flushAndDisable();
 
   playing_ = false;
   task_ = nullptr;
   vTaskDelete(nullptr);
+}
+
+#if FREEINK_CAP_MP3
+
+namespace {
+// MPEG1 Layer III's worst case: 2 channels x 1152 samples/frame (2 granules
+// x 576 samples), interleaved.
+constexpr size_t MP3_MAX_FRAME_SAMPLES = 1152 * 2;
+// Compressed bytes buffered ahead of the decoder. Generous relative to a
+// typical frame (a few hundred bytes) so MP3FindSyncWord() reliably has a
+// full frame to work with after each refill.
+constexpr size_t MP3_IN_BUF = 4096;
+}  // namespace
+
+void AudioManager::mp3TaskLoop() {
+  HMP3Decoder dec = MP3InitDecoder();
+  if (!dec) {
+    playing_ = false;
+    task_ = nullptr;
+    vTaskDelete(nullptr);
+    return;
+  }
+
+  uint8_t inBuf[MP3_IN_BUF];
+  size_t inFill = 0;
+  bool sourceEof = false;
+  bool ampUp = false;
+  int16_t pcm[MP3_MAX_FRAME_SAMPLES];
+  int16_t outBuf[MP3_MAX_FRAME_SAMPLES];
+
+  while (!stopRequested_) {
+    // Keep the compressed buffer topped up unless the source is exhausted.
+    if (!sourceEof && inFill < MP3_IN_BUF) {
+      const int n = source_.read(inBuf + inFill, MP3_IN_BUF - inFill);
+      if (n > 0) {
+        inFill += (size_t)n;
+      } else {
+        sourceEof = true;
+      }
+    }
+    if (inFill == 0) {
+      if (loop_ && source_.seek(0)) {
+        sourceEof = false;
+        continue;
+      }
+      break;
+    }
+
+    unsigned char* p = inBuf;
+    int bytesLeft = (int)inFill;
+    const int sync = MP3FindSyncWord(p, bytesLeft);
+    if (sync < 0) {
+      // No frame header in the buffered bytes. At EOF that means no more
+      // frames; otherwise keep whatever tail might be a partial sync word
+      // and let the next refill complete it.
+      if (sourceEof) {
+        if (loop_ && source_.seek(0)) {
+          inFill = 0;
+          sourceEof = false;
+          continue;
+        }
+        break;
+      }
+      if (inFill >= MP3_IN_BUF) {
+        // No sync word anywhere in a full buffer (e.g. a large ID3v2 tag
+        // ahead of the first frame) — drop half of it to make room so the
+        // next refill brings in new bytes instead of re-scanning the same
+        // unchanging buffer forever.
+        const size_t drop = inFill / 2;
+        memmove(inBuf, inBuf + drop, inFill - drop);
+        inFill -= drop;
+      }
+      continue;
+    }
+    p += sync;
+    bytesLeft -= sync;
+    const int bytesLeftBefore = bytesLeft;
+
+    const int err = MP3Decode(dec, &p, &bytesLeft, pcm, 0);
+    if (err != 0) {
+      // Corrupt/unsupported frame: drop the sync byte and resync on the next
+      // pass rather than aborting the whole stream over one bad frame.
+      memmove(inBuf, inBuf + sync + 1, inFill - (size_t)sync - 1);
+      inFill -= (size_t)sync + 1;
+      continue;
+    }
+
+    // Shift whatever the decoder didn't consume to the front of inBuf.
+    const size_t frameBytes = (size_t)(bytesLeftBefore - bytesLeft);
+    const size_t consumedTotal = (size_t)sync + frameBytes;
+    memmove(inBuf, inBuf + consumedTotal, inFill - consumedTotal);
+    inFill -= consumedTotal;
+
+    MP3FrameInfo info;
+    MP3GetLastFrameInfo(dec, &info);
+    if (info.outputSamps <= 0 || info.nChans < 1 || info.nChans > 2 || info.samprate < 8000 ||
+        info.samprate > 48000) {
+      continue;
+    }
+    if (!ensureI2s((uint32_t)info.samprate)) break;
+    if (!ampUp) {
+      primeSilenceAndAmpUp();
+      ampUp = true;
+    }
+
+    const int frames = info.outputSamps / info.nChans;
+    size_t outBytes;
+    if (info.nChans == 1) {
+      for (int i = 0; i < frames; ++i) {
+        outBuf[i * 2] = pcm[i];
+        outBuf[i * 2 + 1] = pcm[i];
+      }
+      outBytes = (size_t)frames * 4;
+    } else {
+      memcpy(outBuf, pcm, (size_t)frames * 2 * sizeof(int16_t));
+      outBytes = (size_t)frames * 4;
+    }
+
+    size_t written = 0;
+    if (i2s_channel_write((i2s_chan_handle_t)txChan_, outBuf, outBytes, &written, pdMS_TO_TICKS(1000)) != ESP_OK) {
+      break;
+    }
+  }
+
+  if (ampUp) flushAndDisable();
+  MP3FreeDecoder(dec);
+
+  playing_ = false;
+  task_ = nullptr;
+  vTaskDelete(nullptr);
+}
+
+#endif  // FREEINK_CAP_MP3
+
+bool AudioManager::playMp3(const WavSource& source, bool loop) {
+#if FREEINK_CAP_MP3
+  if (!begun_ && !begin()) return false;
+  stop();
+  if (!source.seek(0)) return false;
+
+  // Unmute now; the amp itself comes up in mp3TaskLoop() once the first
+  // frame's sample rate is known and silence is already flowing (same
+  // pop-avoidance contract as play()).
+  codecMute(false);
+
+  source_ = source;
+  loop_ = loop;
+  format_ = Format::Mp3;
+  stopRequested_ = false;
+  playing_ = true;
+
+  // Larger stack than the WAV path: the Helix decoder's working buffers plus
+  // this class's own compressed/PCM staging buffers all live on-stack.
+  if (xTaskCreatePinnedToCore(taskEntry, "audio_mp3", 16384, this, 10, &task_, 0) != pdPASS) {
+    playing_ = false;
+    task_ = nullptr;
+    return false;
+  }
+  return true;
+#else
+  (void)source;
+  (void)loop;
+  log_e("playMp3() requires -DFREEINK_MP3_HELIX=1 (see AudioManager.h)");
+  return false;
+#endif
 }
 
 }  // namespace freeink
@@ -437,6 +633,7 @@ bool AudioManager::begin() { return false; }
 void AudioManager::setVolume(uint8_t) {}
 bool AudioManager::play(const WavSource&, bool) { return false; }
 bool AudioManager::playBuffer(const uint8_t*, size_t, bool) { return false; }
+bool AudioManager::playMp3(const WavSource&, bool) { return false; }
 void AudioManager::stop() {}
 void AudioManager::powerDown() {}
 bool AudioManager::parseWavHeader(const WavSource&, WavInfo&) { return false; }
@@ -448,6 +645,10 @@ void AudioManager::codecMute(bool) {}
 void AudioManager::setAmp(bool) {}
 void AudioManager::taskEntry(void*) {}
 void AudioManager::taskLoop() {}
+void AudioManager::pcmTaskLoop() {}
+void AudioManager::mp3TaskLoop() {}
+void AudioManager::primeSilenceAndAmpUp() {}
+void AudioManager::flushAndDisable() {}
 }  // namespace freeink
 
 #endif  // FREEINK_CAP_AUDIO
