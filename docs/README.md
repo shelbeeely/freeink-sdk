@@ -13,7 +13,7 @@ Device build flags and dependencies are in [platformio.sample.ini](../platformio
 | [Deferred refresh migration](deferred-refresh-migration.md) | Split refresh interface and consumer migration |
 | [MCU portability](consumer-mcu-portability.md) | Runtime profiles, GPIO wakeup, and C3/S3 differences |
 | [BLE keyboard host](ble-keyboard-host.md) | Enabling and using BLE HID input |
-| [Audio expansion](audio-expansion.md) | Roadmap: MP3/TTS/STT, playlists, voice notes, ducking |
+| [Audio expansion](audio-expansion.md) | Roadmap: MP3/TTS/STT, playlists, ducking, and the FreeInkUI components for them |
 | [Testing](testing.md) | Local host regression suites and validation limits |
 
 ## Board support
